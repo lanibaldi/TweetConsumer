@@ -161,6 +161,13 @@ namespace TweetConsumer
         public string Created_at { get; set; }
         [JsonProperty]
         public string User { get; set; }
+
+        [JsonProperty]
+        public List<string> HashTag { get; set; }
+        [JsonProperty]
+        public List<string> Mention { get; set; }
+        [JsonProperty]
+        public List<string> Url { get; set; }
     }
 
     /// <summary>
@@ -274,8 +281,23 @@ namespace TweetConsumer
                         var my_tweet = new MyTweet();
                         string content = msg.Body as string;
                         if (!string.IsNullOrEmpty(content))
-                        {                            
-                            JsonConvert.PopulateObject("{" + content + "}", my_tweet);
+                        {                                                                                 
+                            string json = "{" + content + "}";       
+                            JsonConvert.PopulateObject(json, my_tweet);
+
+                            // remove mentions from content
+                            foreach (var mention in my_tweet.Mention)
+                            {
+                                int index = content.IndexOf(mention);
+                                content = content.Remove(index, mention.Length);
+                            }
+                            
+                            // remove urls from content
+                            foreach (var url in my_tweet.Url)
+                            {
+                                int index = content.IndexOf(url);
+                                content = content.Remove(index, url.Length);
+                            }
 
                             var doc = new MongoDB.Bson.BsonDocument();
                             var elems = new List<MongoDB.Bson.BsonElement>();
@@ -283,8 +305,15 @@ namespace TweetConsumer
                             elems.Add(new MongoDB.Bson.BsonElement("Id", my_tweet.Id));
                             elems.Add(new MongoDB.Bson.BsonElement("Text", my_tweet.Text));
                             elems.Add(new MongoDB.Bson.BsonElement("User", my_tweet.User));
+                            //elems.Add(new MongoDB.Bson.BsonElement("HashTag", string.Join("|", my_tweet.HashTag)));
+                            //elems.Add(new MongoDB.Bson.BsonElement("Mention", string.Join("|", my_tweet.Mention)));
+                            //elems.Add(new MongoDB.Bson.BsonElement("Url", string.Join("|", my_tweet.Url)));
                             doc.AddRange(elems);
-                        
+                            
+                            doc.Add("HashTag", new MongoDB.Bson.BsonArray(my_tweet.HashTag));
+                            doc.Add("Mention", new MongoDB.Bson.BsonArray(my_tweet.Mention));
+                            doc.Add("Url", new MongoDB.Bson.BsonArray(my_tweet.Url));
+
                             collection.Insert(doc);                            
                         }
 
