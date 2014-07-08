@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Transactions;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using MongoDB.Driver.Builders;
 using Newtonsoft.Json;
 
 namespace TweetConsumer
@@ -29,7 +30,12 @@ namespace TweetConsumer
             if (string.IsNullOrEmpty(collectionName))
                 collectionName = "tweets";
 
-            bool removeAll = args.Length > 1 && args[1] == "-clear";
+            if (args.Length > 0 && args[0] == "-mongodb")
+            {
+                bool removeAll = args.Length > 1 && args[1] == "-clear";
+                if (removeAll)
+                    ClearDBCollection(collectionName);
+            }
 
             while (true)
             {
@@ -54,7 +60,7 @@ namespace TweetConsumer
                             {
                                 var threadReceiver = new ConsumerThread();
                                 Thread thread = threadReceiver.Start(string.Concat("T", i.ToString()),
-                                    queueName, collectionName, removeAll);
+                                    queueName, collectionName);
                                 threads.Add(thread);
                             }
                             foreach (Thread thread in threads)
@@ -70,6 +76,33 @@ namespace TweetConsumer
                 Console.WriteLine("Sleeping...");
                 Thread.Sleep(5000);
             }
+        }
+
+        private static void ClearDBCollection(string collectionName)
+        {
+            if (string.IsNullOrEmpty(collectionName))
+                return;
+
+            try
+            {
+                string connectionString = "mongodb://localhost";
+                var client = new MongoClient(connectionString);
+                var server = client.GetServer();
+                var database = server.GetDatabase("tcat"); // "tcat" is the name 
+                if (database.CollectionExists(collectionName))
+                {
+                    var collection = database.GetCollection(collectionName);
+                    if (collection != null)
+                    {
+                        collection.RemoveAll();
+                    }
+                }
+            }
+            catch (Exception exc)
+            {
+                Console.Error.WriteLine("Error in cleaning the DB collection", exc);
+            }
+
         }
 
         /*
@@ -177,15 +210,13 @@ namespace TweetConsumer
     {
         private Thread pThread = null;
         private string queueName;
-        private string collName;
-        private bool removeAll;
+        private string collName;        
 
         /// <summary>
         /// Constructor
         /// </summary>
         public ConsumerThread()
-        {
-            removeAll = false;
+        {            
         }
 
         /// <summary>
@@ -196,11 +227,10 @@ namespace TweetConsumer
         /// <param name="collName"></param>
         /// <param name="rm"></param>
         /// <returns></returns>
-        internal Thread Start(string threadName, string queueName, string collName, bool rm)
+        internal Thread Start(string threadName, string queueName, string collName)
         {
             this.queueName = queueName;
-            this.collName = collName;
-            this.removeAll = rm;
+            this.collName = collName;            
 
             ThreadStart threadStart = new System.Threading.ThreadStart(Run);
             pThread = new Thread(threadStart);
@@ -245,7 +275,7 @@ namespace TweetConsumer
         private void Run()
         {
             Message msg = ReceiveTweet(queueName);            
-            Consume(msg, collName, removeAll);
+            Consume(msg, collName);
         }
 
         /// <summary>
@@ -254,7 +284,7 @@ namespace TweetConsumer
         /// <param name="msg"></param>
         /// <param name="collectionName"></param>
         /// <param name="removeAll"></param>
-        private static void Consume(Message msg, string collectionName, bool removeAll)
+        private static void Consume(Message msg, string collectionName)
         {
             if (msg == null)
                 return;
@@ -272,10 +302,7 @@ namespace TweetConsumer
                 
                 var collection = database.GetCollection(collectionName);
                 if (collection != null)
-                {
-                    if (removeAll)
-                        collection.RemoveAll();
-
+                {                    
                     try
                     {
                         var my_tweet = new MyTweet();
@@ -299,22 +326,28 @@ namespace TweetConsumer
                                 content = content.Remove(index, url.Length);
                             }
 
-                            var doc = new MongoDB.Bson.BsonDocument();
-                            var elems = new List<MongoDB.Bson.BsonElement>();
-                            elems.Add(new MongoDB.Bson.BsonElement("CreationDate", DateTime.Parse(my_tweet.Created_at)));
-                            elems.Add(new MongoDB.Bson.BsonElement("Id", my_tweet.Id));
-                            elems.Add(new MongoDB.Bson.BsonElement("Text", my_tweet.Text));
-                            elems.Add(new MongoDB.Bson.BsonElement("User", my_tweet.User));
-                            //elems.Add(new MongoDB.Bson.BsonElement("HashTag", string.Join("|", my_tweet.HashTag)));
-                            //elems.Add(new MongoDB.Bson.BsonElement("Mention", string.Join("|", my_tweet.Mention)));
-                            //elems.Add(new MongoDB.Bson.BsonElement("Url", string.Join("|", my_tweet.Url)));
-                            doc.AddRange(elems);
-                            
-                            doc.Add("HashTag", new MongoDB.Bson.BsonArray(my_tweet.HashTag));
-                            doc.Add("Mention", new MongoDB.Bson.BsonArray(my_tweet.Mention));
-                            doc.Add("Url", new MongoDB.Bson.BsonArray(my_tweet.Url));
+                            //IMongoQuery query = Query.EQ("Id", my_tweet.Id);
+                            //var docs = collection.Find(query);
+                            //if (docs.Any())
+                            {
+                                var doc = new MongoDB.Bson.BsonDocument();
+                                var elems = new List<MongoDB.Bson.BsonElement>();
+                                elems.Add(new MongoDB.Bson.BsonElement("CreationDate", DateTime.Parse(my_tweet.Created_at)));
+                                elems.Add(new MongoDB.Bson.BsonElement("Id", my_tweet.Id));
+                                elems.Add(new MongoDB.Bson.BsonElement("Text", my_tweet.Text));
+                                elems.Add(new MongoDB.Bson.BsonElement("User", my_tweet.User));
+                                //elems.Add(new MongoDB.Bson.BsonElement("HashTag", string.Join("|", my_tweet.HashTag)));
+                                //elems.Add(new MongoDB.Bson.BsonElement("Mention", string.Join("|", my_tweet.Mention)));
+                                //elems.Add(new MongoDB.Bson.BsonElement("Url", string.Join("|", my_tweet.Url)));
+                                doc.AddRange(elems);
 
-                            collection.Insert(doc);                            
+                                doc.Add("HashTag", new MongoDB.Bson.BsonArray(my_tweet.HashTag));
+                                doc.Add("Mention", new MongoDB.Bson.BsonArray(my_tweet.Mention));
+                                doc.Add("Url", new MongoDB.Bson.BsonArray(my_tweet.Url));
+
+                                collection.Insert(doc);                                     
+                            }
+                       
                         }
 
                     }
